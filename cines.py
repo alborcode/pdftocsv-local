@@ -714,8 +714,24 @@ def procesar_pagina(pagina, ccaa_inicial="", ayto_inicial="", ultimo_top_pagina_
             nombre_previo = registro_actual.get('nombre_cine', '') if registro_actual else ''
             hay_parentesis_abierto_previo = nombre_previo and '(' in nombre_previo and ')' not in nombre_previo
             
+            # NUEVO: Verificar si la dirección anterior indica continuación explícita
+            direccion_previa = registro_actual.get('direccion', '') if registro_actual else ''
+            direccion_indica_continuacion = False
+            if direccion_previa:
+                direccion_previa_lower = direccion_previa.lower()
+                if (direccion_previa_lower.endswith('esq. c/') or
+                    direccion_previa_lower.endswith(',') or
+                    'con vuelta a' in direccion_previa_lower or
+                    '(' in direccion_previa and ')' not in direccion_previa):
+                    direccion_indica_continuacion = True
+            
             if hay_parentesis_abierto_previo and es_continuacion:
                 # Forzar continuación cuando hay paréntesis abierto
+                es_continuacion_direccion = True
+                es_continuacion_nombre = True
+            elif direccion_indica_continuacion and es_continuacion:
+                # La dirección anterior indica explícitamente que continúa
+                # Forzar continuación incluso si la línea actual tiene nombre
                 es_continuacion_direccion = True
                 es_continuacion_nombre = True
             elif nombre_completo_con_direccion and registro_actual:
