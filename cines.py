@@ -622,6 +622,9 @@ def procesar_pagina(pagina, ccaa_inicial="", ayto_inicial="", ultimo_top_pagina_
                         ultima_palabra = nombre_previo.lower().split()[-1]
                         if ultima_palabra in ['y', 'e', 'o', 'ni']:
                             nombre_parece_continuacion = True
+                        # También si termina con "y <sustantivo>" (ej: "y Centro")
+                        if len(ultimas_palabras) == 2 and ultimas_palabras[0] == 'y':
+                            nombre_parece_continuacion = True
                 
                 # NUEVO Caso 7: La línea actual tiene paréntesis pero NO empieza con él
                 # y no tiene dirección = es continuación de nombre
@@ -634,6 +637,17 @@ def procesar_pagina(pagina, ccaa_inicial="", ayto_inicial="", ultimo_top_pagina_
                 if not nombre_parece_continuacion and registro_actual and not direc:
                     nombre_previo = registro_actual.get('nombre_cine', '')
                     if nombre_previo and '(' in nombre_previo and ')' not in nombre_previo:
+                        nombre_parece_continuacion = True
+                
+                # NUEVO Caso 9: Línea actual empieza con preposición ("de", "del")
+                # y no tiene dirección = es continuación de nombre
+                # O si la dirección anterior termina con "esq. c/" y hay dirección nueva = continuación de dirección
+                if not nombre_parece_continuacion and registro_actual:
+                    direccion_previa = registro_actual.get('direccion', '')
+                    if direccion_previa and ('esq. c/' in direccion_previa.lower() or direccion_previa.endswith(',')):
+                        # La dirección anterior indica explícitamente que continúa
+                        parece_continuacion_direccion = True
+                    elif denom.lower().startswith(('de ', 'del ', 'la ', 'el ')) and not direc:
                         nombre_parece_continuacion = True
             
             # Continuacion de direccion: 
