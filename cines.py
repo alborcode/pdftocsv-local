@@ -628,19 +628,53 @@ def procesar_pagina(pagina, ccaa_inicial="", ayto_inicial="", ultimo_top_pagina_
                 if not nombre_parece_continuacion and registro_actual and not direc:
                     if '(' in denom and not denom.startswith('('):
                         nombre_parece_continuacion = True
+                
+                # NUEVO Caso 8: Nombre anterior tiene paréntesis abierto y línea actual NO tiene dirección
+                # = es continuación del paréntesis
+                if not nombre_parece_continuacion and registro_actual and not direc:
+                    nombre_previo = registro_actual.get('nombre_cine', '')
+                    if nombre_previo and '(' in nombre_previo and ')' not in nombre_previo:
+                        nombre_parece_continuacion = True
             
             # Continuacion de direccion: 
             # Caso 1: Sin nombre pero con direccion
             # Caso 2: Con direccion Y el registro anterior también tenía dirección (continuación de dirección multilínea)
             # Caso 3: Hay dirección Y el nombre es muy corto (1-2 palabras) Y hay dirección previa
+            # NUEVO Caso 4: La línea actual parece continuación de dirección (empieza con preposición o tiene paréntesis)
             nombre_corto = denom and len(denom.split()) <= 2
+            
+            # Detectar si la línea actual parece continuación de dirección
+            parece_continuacion_direccion = False
+            if direc and registro_actual and registro_actual.get('direccion'):
+                # Si empieza con preposición/conjunción es continuación
+                if direc.lower().startswith(('de', 'del', 'la', 'el', 'y', 'e', 'o', 'con', 'esquina')):
+                    parece_continuacion_direccion = True
+                # Si empieza con paréntesis es continuación
+                if direc.startswith('('):
+                    parece_continuacion_direccion = True
+                # Si el nombre es muy corto y hay dirección previa
+                if nombre_corto:
+                    parece_continuacion_direccion = True
+                
+                # NUEVO: Verificar si la dirección PREVIA termina con "y c/" o "esquina"
+                direccion_previa = registro_actual.get('direccion', '')
+                if direccion_previa:
+                    direccion_previa_lower = direccion_previa.lower().strip()
+                    if (direccion_previa_lower.endswith('y c/') or 
+                        direccion_previa_lower.endswith('esquina c/') or
+                        direccion_previa_lower.endswith('esq. c/') or
+                        direccion_previa_lower.endswith('con vuelta')):
+                        # La dirección anterior indica explícitamente que continúa
+                        parece_continuacion_direccion = True
+            
             tiene_continuacion_direccion = (
                 (not denom and direc) or  # Sin nombre, con dirección
                 (es_continuacion and direc and registro_actual and 
                  registro_actual.get('direccion') and 
                  not denom) or  # Hay dirección previa Y la actual no tiene nombre nuevo
                 (es_continuacion and direc and registro_actual and 
-                 registro_actual.get('direccion') and nombre_corto)  # Dirección previa + nombre corto
+                 registro_actual.get('direccion') and nombre_corto) or  # Dirección previa + nombre corto
+                (es_continuacion and parece_continuacion_direccion)  # Nueva detección
             )
             # Continuacion de nombre: nombre que parece continuacion (aunque tenga direccion)
             tiene_continuacion_nombre = (nombre_parece_continuacion)
@@ -658,19 +692,44 @@ def procesar_pagina(pagina, ccaa_inicial="", ayto_inicial="", ultimo_top_pagina_
             # NUEVO: Interlineado muy pequeño (< 15) indica continuación casi segura
             interlineado_muy_pequeno = 0 < interlineado < 15
             
-            # NUEVO: Si tiene nombre COMPLETO (no corto) Y dirección nueva, NO es continuación
-            # Esto evita fusionar cines diferentes que están juntos
+            # NUEVO: Si tiene nombre COMPLETO (no corto) Y dirección nueva, podría NO ser continuación
             nombre_completo_con_direccion = (denom and direc and len(denom.split()) >= 2)
-            if nombre_completo_con_direccion and registro_actual:
-                # Verificar si el nombre parece independiente (no es continuación de paréntesis)
+            
+            # NUEVO: Si el registro anterior tiene paréntesis abierto, FORZAR continuación
+            # (a menos que la línea actual sea claramente un nuevo cine con nombre completo + dirección nueva)
+            nombre_previo = registro_actual.get('nombre_cine', '') if registro_actual else ''
+            hay_parentesis_abierto_previo = nombre_previo and '(' in nombre_previo and ')' not in nombre_previo
+            
+            if hay_parentesis_abierto_previo and es_continuacion:
+                # Forzar continuación cuando hay paréntesis abierto
+                es_continuacion_direccion = True
+                es_continuacion_nombre = True
+            elif nombre_completo_con_direccion and registro_actual:
+                # Verificar si hay paréntesis involucrado
                 nombre_previo = registro_actual.get('nombre_cine', '')
-                if ')' in nombre_previo or ('(' not in nombre_previo):
+                hay_parentesis_abierto = ('(' in nombre_previo and ')' not in nombre_previo)
+                linea_empieza_con_parentesis = denom.startswith('(')
+                
+                # NUEVO: Verificar si el nombre actual empieza con el municipio (repetición)
+                empieza_con_municipio = ayto_actual and denom.upper().startswith(ayto_actual.upper().split()[0])
+                
+                if hay_parentesis_abierto or linea_empieza_con_parentesis or empieza_con_municipio:
+                    # Hay paréntesis abierto O empieza con municipio = es continuación
+                    es_continuacion_direccion = (es_continuacion and 
+                                                  tiene_continuacion_direccion and
+                                                  registro_actual is not None and 
+                                                  bool(registro_actual.get("nombre_cine")))
+                    es_continuacion_nombre = ((es_continuacion or interlineado_muy_pequeno) and 
+                                               tiene_continuacion_nombre and
+                                               registro_actual is not None and 
+                                               bool(registro_actual.get("nombre_cine")))
+                elif ')' in nombre_previo or ('(' not in nombre_previo):
                     # El registro anterior está cerrado o no tiene paréntesis
                     # Y el actual tiene nombre+direccion = nuevo cine
                     es_continuacion_direccion = False
                     es_continuacion_nombre = False
                 else:
-                    # El registro anterior tiene paréntesis abierto, podría ser continuación
+                    # Caso intermedio - verificar con lógica normal
                     es_continuacion_direccion = (es_continuacion and 
                                                   tiene_continuacion_direccion and
                                                   registro_actual is not None and 
@@ -691,6 +750,16 @@ def procesar_pagina(pagina, ccaa_inicial="", ayto_inicial="", ultimo_top_pagina_
             
             # Si NO es continuación, crear nuevo registro
             if not (es_continuacion_direccion or es_continuacion_nombre):
+                # NUEVO: Si la línea tiene solo 1 palabra y no tiene datos significativos,
+                # NO crear nuevo registro (es información adicional o nota)
+                if denom and not direc and not fecha1 and not pantallas_col:
+                    if len(denom.split()) == 1 and len(denom) < 20:
+                        # Es una palabra sola corta = probablemente nota, no nuevo cine
+                        registro_actual = None
+                        ultimo_top = top
+                        ultimo_tipo = None
+                        continue
+                
                 registro_actual = None
             
             # NUEVO: Si hay salto de pagina, forzar nuevo registro EXCEPTO si:
